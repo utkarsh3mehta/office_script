@@ -11,6 +11,7 @@ It also gives you and backup management service Service principle the required a
 
 #>
 
+# Check for the required modules
 if(!(Get-Module -ListAvailable -Name Az.Accounts)){
     Write-Error "Az.Accounts module not present. Also make sure, Az.KeyVault and Az.Compute modules are present."
     Sleep -Seconds 5
@@ -26,6 +27,8 @@ if(!(Get-Module -ListAvailable -Name Az.Compute)){
     Sleep -Seconds 5
     Exit
 }
+
+# Login to azure portal
 Write-Verbose "Logging you to Azure Portal.`nPlease make sure that your have atleast contributor access on the corresponding resources" -Verbose
 Sleep -Seconds 10
 az login
@@ -35,10 +38,13 @@ $subscriptionid = Read-Host "Enter subscription ID"
 $resourcegroup = Read-Host "Enter resource group name. (CASE-SENSITIVE)"
 $vmname = Read-Host "Enter the name of the virtual machine (CASE-SENSITIVE)"
 
+# select the subscription
 az account set -s $subscriptionid
 $keyvaultname = "$resourcegroup-KV"
 $keyname = "$vmname-AK"
+# Get user object id
 $userobjectid = (az ad signed-in-user show | ConvertFrom-Json).objectId
+# Get object id of backup service principal
 $splist = az ad sp list --all | ConvertFrom-Json
 $backupobjectid = ($splist | Where-Object {$_.displayName -clike "*Backup*Management*Service"}).objectid
 
@@ -69,14 +75,13 @@ else{
     Write-Verbose "Key vault found."
 }
 
-# Give permissions
+# Give permissions to user and backup service principal
 az keyvault set-policy --name $keyvaultname --object-id $userobjectid --key-permissions get update create import delete list --secret-permissions set delete get list
 az keyvault set-policy --name $keyvaultname --object-id $backupobjectid --key-permissions get list backup --secret-permissions get list backup
 
 #Check if key exists
 Write-Verbose "Checking if key exists" -Verbose
 $azkey = az keyvault key show --name $keyname --vault-name $keyvaultname
-#Does such a key exist?
 if($azkey -eq $null){
     #If not, then create one
     Write-Verbose "Creating a new key" -Verbose
