@@ -1,4 +1,17 @@
-﻿if(!(Get-Module -ListAvailable -Name Az.Accounts)){
+﻿<#
+
+.Synopsis
+Enable disk encryption on all disks of a virtual machine
+
+.Description
+This script first checks if the right modules are installed or not. 
+Then it logs you in the portal. 
+Taking all the necessary inputs, the script checks/creates for the correct key-vault and keys to encrpyt all the disks of a VM.
+It also gives you and backup management service Service principle the required access to work fine.
+
+#>
+
+if(!(Get-Module -ListAvailable -Name Az.Accounts)){
     Write-Error "Az.Accounts module not present. Also make sure, Az.KeyVault and Az.Compute modules are present."
     Sleep -Seconds 5
     Exit
