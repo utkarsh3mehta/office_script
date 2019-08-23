@@ -20,7 +20,6 @@ Content type: Text
 
 .Output
 The resource ID of the alert along with a status of 'OK'. This means that the alert has been deleted successfully.
-
 #>
 
 

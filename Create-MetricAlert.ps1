@@ -1,104 +1,105 @@
-﻿<#
-.SYNOPSIS
-Function to create metric alerts using inputs from a CSV file
+﻿Function Create-UTCMetricAlert 
+{
+<#
+    .SYNOPSIS
+    Create metric alerts using inputs from a CSV file
 
-.DESCRIPTION
-This function allows you to create metric alerts just be putting the information in a CSV file (as mentioned in the Input part)
-The function considers names as per UTC naming convention. 
-I.e.: 
-1. Action groups are be placed in resource groups names like <subscriptionName>AlertingRG<locationOfResource>
-2. Action groups are named Support Email <locationOfResource>
-----------------
-The function validates the CSV file as it goes ahead creating the alerts and saves the alerts information if it faces any issue.
+    .DESCRIPTION
+    This function allows you to create metric alerts just be putting the information in a CSV file (as mentioned in the Input part). 
+    The function considers names as per UTC naming convention. 
+    I.e.: 
+    1. Action groups are be placed in resource groups names like <subscriptionName>AlertingRG<locationOfResource> 
+    2. Action groups are named Support Email <locationOfResource>.
+    ------------------------
+    The function validates the CSV file as it goes ahead creating the alerts and saves the alerts information if it faces any issue.
 
+    .PARAMETER CsvPath
+    Path of the CSV file that you would like to use as input in a text format    
 
-.INPUT
-The CSV file that must contain columns of
-Column 1: 
-Header: AlertName
-Description: Name of the alert
-Content type: Text
------------------
-Column 2: 
-Header: ResourceId
-Description: Resource ID of the resource
-Content type: Text
------------------
-Column 3:
-Header: ResourceGroupName
-Description: Resource group of the resource
-Context type: Text
------------------
-Column 4:
-Header: Location
-Description: Location of the resource
-Context type: Text
-Preference: No special character or spaces
------------------
-Column 5:
-Header: SubscriptionId
-Description: Subscription ID of the resource
-Context type: Numbers with hyphen(-)
------------------
-Column 6:
-Header: Metric
-Description: Metric on which you would like to monitor the resource
-Reference: https://docs.microsoft.com/en-us/azure/azure-monitor/platform/metrics-supported
-Context type: Text
------------------
-Column 7:
-Header: Threshold
-Description: The limit that should not be breached
-Context type: Number
------------------
-Column 8:
-Header: Operator
-Description: The relation between the threshold and the metric
-Preference: greater than, greater than or equal to, less than, less than or equal to
-Context type: Text, any one from above
------------------
-Column 9:
-Header: Aggregator
-Description: The relation between operator and threshold
-Preference: Average, minimum, maximum, total
-Context type: Text
------------------
-Column 10:
-Header: Severity
-Description: Severity of the alert to be created
-Preference: 0 - 4 (0 is low, 4 is high)
-Context type: Number
------------------
-Column 11:
-Header: Window
-Description: Time window that the resource needs to be monitored before throwing an alert
-Reference: 1m, 5m, 1h, 1d and so on
-Context type: Alphanumeric
------------------
-Column 12:
-Header: ActionGroup
-Description: An action group that will be assigned to the alert upon creation
-Context type: Text
------------------
-Column 13:
-Header: Emailid
-Description: Email ID has must recieve the alert
-Context type: Email
+    .OUTPUT
+    For every row it faces a validation issue, it saves that information and shares it in the end. For each row that has no issue, alerts are created and displayed.
 
-.OUTPUT
-For every row it faces a validation issue, it saves that information and shares it in the end. For each row that has no issue, alerts are created and displayed.
+    .EXAMPLE
+    PS> Create-UTCMetricAlert -CsvPath "C:/temp/metricInfo.csv"
 
-.EXAMPLE
-PS> Create-UTCMetricAlert -CsvPath "C:/temp/metricInfo.csv"
+    .LINK
+    https://github.com/utkarsh3mehta/office_script/blob/master/Create-MetricAlert.ps1
+    https://docs.microsoft.com/en-us/azure/azure-monitor/platform/metrics-supported
 
-.LINK
-
-https://docs.microsoft.com/en-us/azure/azure-monitor/platform/metrics-supported
-
+    .INPUT
+    The CSV file that must contain columns of
+    Column 1: 
+    Header: AlertName
+    Description: Name of the alert
+    Content type: Text
+    -----------------
+    Column 2: 
+    Header: ResourceId
+    Description: Resource ID of the resource
+    Content type: Text
+    -----------------
+    Column 3:
+    Header: ResourceGroupName
+    Description: Resource group of the resource
+    Context type: Text
+    -----------------
+    Column 4:
+    Header: Location
+    Description: Location of the resource
+    Context type: Text
+    Preference: No special character or spaces
+    -----------------
+    Column 5:
+    Header: SubscriptionId
+    Description: Subscription ID of the resource
+    Context type: Numbers with hyphen(-)
+    -----------------
+    Column 6:
+    Header: Metric
+    Description: Metric on which you would like to monitor the resource
+    Reference: https://docs.microsoft.com/en-us/azure/azure-monitor/platform/metrics-supported
+    Context type: Text
+    -----------------
+    Column 7:
+    Header: Threshold
+    Description: The limit that should not be breached
+    Context type: Number
+    -----------------
+    Column 8:
+    Header: Operator
+    Description: The relation between the threshold and the metric
+    Preference: greater than, greater than or equal to, less than, less than or equal to
+    Context type: Text, any one from above
+    -----------------
+    Column 9:
+    Header: Aggregator
+    Description: The relation between operator and threshold
+    Preference: Average, minimum, maximum, total
+    Context type: Text
+    -----------------
+    Column 10:
+    Header: Severity
+    Description: Severity of the alert to be created
+    Preference: 0 - 4 (0 is low, 4 is high)
+    Context type: Number
+    -----------------
+    Column 11:
+    Header: Window
+    Description: Time window that the resource needs to be monitored before throwing an alert
+    Reference: 1m, 5m, 1h, 1d and so on
+    Context type: Alphanumeric
+    -----------------
+    Column 12:
+    Header: ActionGroup
+    Description: An action group that will be assigned to the alert upon creation
+    Context type: Text
+    -----------------
+    Column 13:
+    Header: Emailid
+    Description: Email ID has must recieve the alert
+    Context type: Email
 #>
 
-Function Create-UTCMetricAlert 
-{
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)]
@@ -110,7 +111,7 @@ Function Create-UTCMetricAlert
         if(Test-Path -Path $CsvPath -ErrorAction Stop) 
         {
             $csv = Import-Csv -Path $CsvPath
-            az login --use-device-code
+            az login -u notification@otiselevator.net -p Inecurity.097
             # get the list of unique subscriptions present in the CSV
             $subscriptionlist = ($csv | Group-Object SubscriptionId).Name
 
