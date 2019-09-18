@@ -111,7 +111,7 @@ Function Create-UTCMetricAlert
         if(Test-Path -Path $CsvPath -ErrorAction Stop) 
         {
             $csv = Import-Csv -Path $CsvPath
-            az login -u notification@otiselevator.net -p Inecurity.097
+            az login -u $env:azureloginid -p $azureloginpassword
             # get the list of unique subscriptions present in the CSV
             $subscriptionlist = ($csv | Group-Object SubscriptionId).Name
 
