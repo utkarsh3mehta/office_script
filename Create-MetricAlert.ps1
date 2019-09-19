@@ -149,7 +149,6 @@ Function Create-UTCMetricAlert
                 $psCred = New-Object System.Management.Automation.PSCredential($azureAccountName, $azurePassword)
                 Connect-AzRmAccount -Credential $psCred
             }
-
             # get the list of unique subscriptions present in the CSV
             $subscriptionlist = ($csv | Group-Object SubscriptionId).Name
 
