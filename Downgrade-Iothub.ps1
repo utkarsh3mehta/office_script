@@ -3,7 +3,7 @@
 Down grade Iot Hubs
 
 .Description
-Want to smartly lower your cost of your iothubs units? Run this script and save at least $25.
+Want to smartly lower your cost of your iothubs units? Run this script and save at least $20.
 
 # Presequisites: Az modules, automation variable LAWebhookUri
 #>
