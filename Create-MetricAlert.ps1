@@ -14,6 +14,15 @@ The function validates the CSV file as it goes ahead creating the alerts and sav
 .Parameter CsvPath
 Path of the CSV file that you would like to use as input in a text format
 
+.Parameter LoginId
+User ID of your Azure account. No need, if you have already logged into Azure account, use AlreadyLoggedIn switch instead.
+
+.Parameter LoginPassword
+Password of your Azure account. no need, if you have already logged into Azure account, use AlreadyLoggedIn switch instead.
+
+.Parameter AlreadyLoggedIn
+[Switch] If you are already logged in to the azure account, use this switch. Better if you have MFA enabled.
+
 .Outputs
 For every row it faces a validation issue, it saves that information and shares it in the end. For each row that has no issue, alerts are created and displayed.
 
@@ -103,7 +112,16 @@ Function Create-UTCMetricAlert
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)]
-        [String] $CsvPath
+        [String] $CsvPath,
+
+        [Parameter(Mandatory=$false)]
+        [String] $LoginId = $env:ClientId,
+
+        [Parameter(Mandatory=$false)]
+        [String] $LoginPassword = $env:ClientPassword,
+
+        [Parameter(Mandatory=$false)]
+        [Switch]$AlreadyLoggedIn
     )
 
     Begin
@@ -111,7 +129,27 @@ Function Create-UTCMetricAlert
         if(Test-Path -Path $CsvPath -ErrorAction Stop) 
         {
             $csv = Import-Csv -Path $CsvPath
-            az login -u notification@otiselevator.net -p Inecurity.097
+
+            if ($AlreadyLoggedIn) {
+                if (($check_subs = az account list) -eq $null) {
+                    Write-Error "Please login using az login."
+                    #Exit
+                }
+                if(($check_subs = Get-AzSubscription) -eq $null) {
+                    Write-Error "Please login using Connect-AzAccount."
+                    Exit
+                }
+            } else {
+                # Login to az module
+                az login -u $LoginId -p $LoginPassword
+
+                # Login to AZ module
+                $azureAccountName =$LoginId
+                $azurePassword = ConvertTo-SecureString $LoginPassword -AsPlainText -Force
+                $psCred = New-Object System.Management.Automation.PSCredential($azureAccountName, $azurePassword)
+                Connect-AzRmAccount -Credential $psCred
+            }
+
             # get the list of unique subscriptions present in the CSV
             $subscriptionlist = ($csv | Group-Object SubscriptionId).Name
 
@@ -127,6 +165,7 @@ Function Create-UTCMetricAlert
             $wrong_aggregator = ""
             $total_rid = ""
             $r = 1
+            $total_already_created = @()
             $total_r = @()
             $total_a = @()
             $err = $false
@@ -141,7 +180,18 @@ Function Create-UTCMetricAlert
     {
         foreach($sub in $subscriptionlist) {
             # Set each subscription as the current subscription
-            az account set -s $sub
+            try {
+                az account set -s $sub
+            } catch {
+                Write-Error "No subscription $sub found in az account list."
+                Continue
+            }
+            try {
+                Set-AzContext -SubscriptionId $sub
+            } catch {
+                Write-Error "No subscription $sub found in Get-AzSubscription"
+                Continue
+            }
             # Get the name of the current subscription
             $subscriptionName = (az account show | ConvertFrom-Json).name
             $subscriptionName = $subscriptionName -replace '[ -\/:*?"<>|.,]',''
@@ -153,28 +203,33 @@ Function Create-UTCMetricAlert
             foreach($row in $data){
                 # Declare the variables from each row of the CSV file
                 Write-Verbose "Initializing variables" -Verbose
-                $location = $row.Location -replace ('[ -\/:*?"<>|.,]','')
                 $name = $row.AlertName
                 $resourcegroupname = $row.ResourceGroupName        
                 $metric = $row.Metric
-                $resourceid = $row.ResourceId
+                $resourcename = $row.Resourcename
+                $resourcetype = $row.Resourcetype
                 $threshold = $row.Threshold
                 $sev = $row.Severity
                 $window = $row.Window
+                $operator = $row.Operator
+                $aggregator = $row.Aggregator
                 $actionGroup = $row.ActionGroup
                 $emailid = $row.Emailid
                 $recipientName = ($emailid -split '@')[0]
 
-                if(!($name -and $location -and $resourcegroupname -and $metric -and $resourceid -and $threshold -and $sev -and $window)) {
+                if(!($name -and $resourcegroupname -and $metric -and $resourcename -and $resourcetype -and $threshold -and $sev -and $window)) {
                     Write-Error "Some important value missing at row number $r. Please check."
                     $total_r += $r
                     $err = $true
                 }
 
-                if(!(az resource show --id $resourceid)) {
+                if(!($resourceInfo = az resource show -n $resourcename -g $resourcegroupname --resource-type $resourcetype | ConvertFrom-Json)) {
                     Write-Error "Issue finding resource for the alert $name."
                     $total_rid += $name+";`n"
                     $err = $true
+                } else {
+                    $resourceid = $resourceInfo.id
+                    $location = $resourceInfo.location -replace ('[ -\/:*?"<>|.,]','')
                 }
 
                 if(!$actionGroup -and !$emailid) {
@@ -183,7 +238,6 @@ Function Create-UTCMetricAlert
                     $err = $true
                 }
 
-                $operator = $row.Operator
                 if($operator -like 'Greater than'){$operator_final = '>'}
                 elseif($operator -like 'Greater than or equal to'){$operator_final = '>='}
                 elseif($operator -like 'less than'){$operator_final = '<'}
@@ -193,8 +247,7 @@ Function Create-UTCMetricAlert
                     Write-Error "Wrong operator detected"
                     $err = $true
                 }
-
-                $aggregator = $row.Aggregator
+                                
                 if($aggregator -like 'av*g*'){$aggregator_final = 'avg'}
                 elseif($aggregator -like 'max*'){$aggregator_final = 'max'}
                 elseif($aggregator -like 'min*'){$aggregator_final = 'min'}
@@ -202,6 +255,14 @@ Function Create-UTCMetricAlert
                 else{
                     $wrong_aggregator += $name+";`n"
                     Write-Error "Wrong aggregator detected"
+                    $err = $true
+                }
+
+                ## Check if any alert already exists 
+                $alert = Get-AzMetricAlertRuleV2 -ResourceGroupName $resourcegroupname | Where-Object {$_.TargetResourceId -eq $resourceid -and $_.Criteria.MetricName -eq $metric}
+                if($alert -ne $null) {
+                    Write-Error ("An alert seems to be pre-configured for $resourcename and metric $metric at " + $alert.criteria.threshold)
+                    $total_already_created += $r
                     $err = $true
                 }
 
@@ -261,7 +322,7 @@ Function Create-UTCMetricAlert
 
                     # Declare names of resource groups and action groups
                     $rgname = $subscriptionName+"AlertingRG"+$location
-                    $action_group_name = "Support Email $location"
+                    $action_group_name = "Support IoT Email $location"
 
                     # Check if the resource group exists
                     Write-host "Looking for resource group as per naming convention" -ForegroundColor Cyan
@@ -305,6 +366,9 @@ Function Create-UTCMetricAlert
         Write-Host "Alerts that have the wrong operator." -ForegroundColor Red -BackgroundColor White
         Write-Host ($wrong_operator) -ForegroundColor Red -BackgroundColor White
         Write-Host "=================================================" -ForegroundColor Red -BackgroundColor White
+        Write-Host "Alerts that are already created for the resource mentioned." -ForegroundColor Red -BackgroundColor White
+        Write-Host ($total_already_created) -ForegroundColor Red -BackgroundColor White
+        Write-Host "=================================================" -ForegroundColor Red -BackgroundColor White
         Write-Host "Alerts that have the wrong resource mentioned." -ForegroundColor Red -BackgroundColor White
         Write-Host ($total_rid) -ForegroundColor Red -BackgroundColor White
         Write-Host "=================================================" -ForegroundColor Red -BackgroundColor White
@@ -315,6 +379,7 @@ Function Create-UTCMetricAlert
         Write-Host (($total_a -join '; ')+"`n") -ForegroundColor Red -BackgroundColor White
         Write-Host "Thank you for using this script."
         Write-Verbose "Logging out of Azure" -Verbose
-        az logout
+        #az logout
+        # Logout-AzAccount
     }
 }
