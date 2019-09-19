@@ -21,7 +21,10 @@ User ID of your Azure account. No need, if you have already logged into Azure ac
 Password of your Azure account. no need, if you have already logged into Azure account, use AlreadyLoggedIn switch instead.
 
 .Parameter AlreadyLoggedIn
-[Switch] If you are already logged in to the azure account, use this switch. Better if you have MFA enabled.
+If you are already logged in to the azure account, use this switch. Better if you have MFA enabled.
+
+.Parameter LogoutInTheEnd
+If you would like to logout after the script ends
 
 .Outputs
 For every row it faces a validation issue, it saves that information and shares it in the end. For each row that has no issue, alerts are created and displayed.
@@ -121,7 +124,10 @@ Function Create-UTCMetricAlert
         [String] $LoginPassword = $env:ClientPassword,
 
         [Parameter(Mandatory=$false)]
-        [Switch]$AlreadyLoggedIn
+        [Switch]$AlreadyLoggedIn,
+
+        [Parameter(Mandatory=$false)]
+        [Switch]$LogoutInTheEnd
     )
 
     Begin
@@ -133,7 +139,7 @@ Function Create-UTCMetricAlert
             if ($AlreadyLoggedIn) {
                 if (($check_subs = az account list) -eq $null) {
                     Write-Error "Please login using az login."
-                    #Exit
+                    Exit
                 }
                 if(($check_subs = Get-AzSubscription) -eq $null) {
                     Write-Error "Please login using Connect-AzAccount."
@@ -261,7 +267,7 @@ Function Create-UTCMetricAlert
                 $alert = Get-AzMetricAlertRuleV2 -ResourceGroupName $resourcegroupname | Where-Object {$_.TargetResourceId -eq $resourceid -and $_.Criteria.MetricName -eq $metric}
                 if($alert -ne $null) {
                     Write-Error ("An alert seems to be pre-configured for $resourcename and metric $metric at " + $alert.criteria.threshold)
-                    $total_already_created += $r
+                    $total_already_created += "$resourcename | $metric;`n"
                     $err = $true
                 }
 
@@ -378,7 +384,10 @@ Function Create-UTCMetricAlert
         Write-Host (($total_a -join '; ')+"`n") -ForegroundColor Red -BackgroundColor White
         Write-Host "Thank you for using this script."
         Write-Verbose "Logging out of Azure" -Verbose
-        #az logout
-        # Logout-AzAccount
+
+        if($LogoutInTheEnd) {
+            az logout
+            Logout-AzAccount
+        }
     }
 }
