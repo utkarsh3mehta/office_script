@@ -127,6 +127,9 @@ Function Create-UTCMetricAlert
         [Switch]$AlreadyLoggedIn,
 
         [Parameter(Mandatory=$false)]
+        [Switch] $AdminAlertToo,
+
+        [Parameter(Mandatory=$false)]
         [Switch]$LogoutInTheEnd
     )
 
@@ -203,7 +206,9 @@ Function Create-UTCMetricAlert
             Write-Host "Logged into $subscriptionName" -ForegroundColor Cyan
             # Select the rows of each subscription from the CSV file
             Write-Verbose "Collecting data from CSV for subscription $subscriptionName" -Verbose
-            $data = $csv | Where-Object SubscriptionId -EQ $sub    
+            $data = $csv | Where-Object SubscriptionId -EQ $sub
+
+            $action_group = az monitor action-group list | ConvertFrom-Json
 
             foreach($row in $data){
                 # Declare the variables from each row of the CSV file
@@ -228,13 +233,25 @@ Function Create-UTCMetricAlert
                     $err = $true
                 }
 
-                if(!($resourceInfo = az resource show -n $resourcename -g $resourcegroupname --resource-type $resourcetype | ConvertFrom-Json)) {
-                    Write-Error "Issue finding resource for the alert $name."
-                    $total_rid += $name+";`n"
-                    $err = $true
+                if($resourcetype -ne 'Microsoft.Sql/servers/databases') {
+                    if(!($resourceInfo = az resource show -n $resourcename -g $resourcegroupname --resource-type $resourcetype | ConvertFrom-Json)) {
+                        Write-Error "Issue finding resource for the alert $name."
+                        $total_rid += $name+";`n"
+                        $err = $true
+                    } else {
+                        $resourceid = $resourceInfo.id
+                        $location = $resourceInfo.location -replace ('[ -\/:*?"<>|.,]','')
+                    }
                 } else {
-                    $resourceid = $resourceInfo.id
-                    $location = $resourceInfo.location -replace ('[ -\/:*?"<>|.,]','')
+                    $servername = ($resourcename -split '/')[0]
+                    $dbname = ($resourcename -split '/')[1]
+                    if(!($resourceInfo = az sql db show --server $servername -n $dbname -g $resourcegroupname | ConvertFrom-Json)) {
+                        $total_rid += $name+";`n"
+                        $err = $true
+                    } else {
+                        $resourceid = $resourceInfo.id
+                        $location = $resourceInfo.location -replace ('[ -\/:*?"<>|.,]','')
+                    }
                 }
 
                 if(!$actionGroup -and !$emailid) {
@@ -282,7 +299,6 @@ Function Create-UTCMetricAlert
                 $description = "Send alert when $condition on $resourcename"
                 
                 # Get the list of action groups in the subscription and convert to JSON for PowerShell to parse
-                $action_group = az monitor action-group list | ConvertFrom-Json
                 $action_group_final = $null
                 Write-Host "Searching for action group in existing resource groups" -ForegroundColor Cyan
                 :outer foreach($ag in $action_group){
@@ -354,8 +370,16 @@ Function Create-UTCMetricAlert
                 # Create the metric alert
                 Write-Host "Creating alert" -ForegroundColor Cyan
                 az monitor metrics alert create -n $name -g $resourcegroupname --scopes $resourceid --condition $condition --description $description --severity $sev --window-size $window --action $action_group_final
-
                 Write-Host "Created an alert $name for $resourcename" -ForegroundColor Black -BackgroundColor White
+
+                if($AdminAlertToo) {
+                    Write-Host "Creating adminitrative alert" -ForegroundColor Cyan
+                    $name = "$resourcename | All Administrative activities"
+                    $description = "An alert for all administrative activities that happen on $resourcename"
+                    az monitor activity-log alert create -n $name --description $description -g $resourcegroupname --scope $resourceid --condition category=Administrative and level=All -a $action_group_final
+                    Write-Host "Created an alert $name for $resourcename" -ForegroundColor Black -BackgroundColor White
+                }
+
                 $emailid = $null
                 ++$r
             }
@@ -383,9 +407,9 @@ Function Create-UTCMetricAlert
         Write-Host "Rows where the action group is mentioned but couldn't be found. Also, the email id is not present for me to automatically create the action group" -ForegroundColor Red -BackgroundColor White
         Write-Host (($total_a -join '; ')+"`n") -ForegroundColor Red -BackgroundColor White
         Write-Host "Thank you for using this script."
-        Write-Verbose "Logging out of Azure" -Verbose
 
         if($LogoutInTheEnd) {
+            Write-Verbose "Logging out of Azure" -Verbose
             az logout
             Logout-AzAccount
         }
