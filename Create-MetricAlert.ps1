@@ -140,13 +140,19 @@ Function Create-UTCMetricAlert
             $csv = Import-Csv -Path $CsvPath
 
             if ($AlreadyLoggedIn) {
-                if (($check_subs = az account list) -eq $null) {
+                try {
+                    az account list | Out-Null
+                } catch {
                     Write-Error "Please login using az login."
+                    Sleep -Seconds 5
                     Exit
                 }
-                if(($check_subs = Get-AzSubscription) -eq $null) {
+                try {
+                    Get-AzSubscription | Out-Null
+                } catch {
                     Write-Error "Please login using Connect-AzAccount."
-                    Exit
+                    #Sleep -Seconds 5
+                    #Exit
                 }
             } else {
                 # Login to az module
@@ -172,10 +178,9 @@ Function Create-UTCMetricAlert
             $wrong_operator = ""
             $wrong_aggregator = ""
             $total_rid = ""
-            $r = 1
-            $total_already_created = @()
-            $total_r = @()
-            $total_a = @()
+            $total_already_created = ""
+            $total_r = ""
+            $total_a = ""
             $err = $false
         } else {
             Write-Error "CSV file path does not exist."
@@ -213,7 +218,6 @@ Function Create-UTCMetricAlert
             foreach($row in $data){
                 # Declare the variables from each row of the CSV file
                 Write-Verbose "Initializing variables" -Verbose
-                $name = $row.AlertName
                 $resourcegroupname = $row.ResourceGroupName        
                 $metric = $row.Metric
                 $resourcename = $row.Resourcename
@@ -225,11 +229,13 @@ Function Create-UTCMetricAlert
                 $aggregator = $row.Aggregator
                 $actionGroup = $row.ActionGroup
                 $emailid = $row.Emailid
-                $recipientName = ($emailid -split '@')[0]
+                $recipientName = ($emailid -split '@')[0]                
+                
+                $name = ($resourcename -replace '[ -\/:*?"<>|.,]',' ') + " | " + $metric
 
-                if(!($name -and $resourcegroupname -and $metric -and $resourcename -and $resourcetype -and $threshold -and $sev -and $window)) {
-                    Write-Error "Some important value missing at row number $r. Please check."
-                    $total_r += $r
+                if(!($resourcegroupname -and $resourcetype -and $threshold -and $sev -and $window)) {
+                    Write-Error "Some important value missing at row $name. Please check."
+                    $total_r += $name + "`n"
                     $err = $true
                 }
 
@@ -238,9 +244,6 @@ Function Create-UTCMetricAlert
                         Write-Error "Issue finding resource for the alert $name."
                         $total_rid += $name+";`n"
                         $err = $true
-                    } else {
-                        $resourceid = $resourceInfo.id
-                        $location = $resourceInfo.location -replace ('[ -\/:*?"<>|.,]','')
                     }
                 } else {
                     $servername = ($resourcename -split '/')[0]
@@ -248,15 +251,15 @@ Function Create-UTCMetricAlert
                     if(!($resourceInfo = az sql db show --server $servername -n $dbname -g $resourcegroupname | ConvertFrom-Json)) {
                         $total_rid += $name+";`n"
                         $err = $true
-                    } else {
-                        $resourceid = $resourceInfo.id
-                        $location = $resourceInfo.location -replace ('[ -\/:*?"<>|.,]','')
                     }
                 }
 
+                $resourceid = $resourceInfo.id
+                $location = $resourceInfo.location -replace ('[ -\/:*?"<>|.,]','')
+
                 if(!$actionGroup -and !$emailid) {
-                    Write-Error "No recipient mentioned at row number $r. Please check."
-                    $total_r += $r
+                    Write-Error "No recipient mentioned at row $name. Please check."
+                    $total_r += $name + "`n"
                     $err = $true
                 }
 
@@ -280,16 +283,7 @@ Function Create-UTCMetricAlert
                     $err = $true
                 }
 
-                ## Check if any alert already exists 
-                $alert = Get-AzMetricAlertRuleV2 -ResourceGroupName $resourcegroupname | Where-Object {$_.TargetResourceId -eq $resourceid -and $_.Criteria.MetricName -eq $metric}
-                if($alert -ne $null) {
-                    Write-Error ("An alert seems to be pre-configured for $resourcename and metric $metric at " + $alert.criteria.threshold)
-                    $total_already_created += "$resourcename | $metric;`n"
-                    $err = $true
-                }
-
                 if($err -eq $true){
-                    ++$r
                     $err = $false
                     continue
                 }
@@ -311,12 +305,19 @@ Function Create-UTCMetricAlert
                         }
                         if($emailid) {
 		                    foreach($email in $ag.emailReceivers){
+                                $found = $false
                                 # If it does, then check if any action group has a reciever of the email provided
 			                    if($email.emailAddress -eq $emailid){
                                     # Get the ID of the action group
-                                    $action_group_final = $ag.id
-                                    Write-Host "Action group found that uses the provided email ID. Breaking loop" -ForegroundColor Cyan
-                                    Break outer
+                                    $found = $true
+                                    Write-Host "Action group found that uses the provided email ID." -ForegroundColor Cyan
+                                }
+                                if($email.emailAddress -eq 'DLLNTAzureOperations@otis.com'){
+                                    if($found) {
+                                        $action_group_final = $ag.id
+                                        Write-Host "Action group found that uses both the email ID. Breaking loop" -ForegroundColor Cyan
+                                        Break outer
+                                    }
                                 }
                             }
                         }
@@ -325,13 +326,12 @@ Function Create-UTCMetricAlert
 
                 # if action group couldn't be found, then it is mandatory to get the email id.
                 if(($action_group_final -eq $null) -and !$emailid) {
-                    Write-Error "No action group found. The email id is also not present at row number $r. Please check."
-                    $total_a += $r
+                    Write-Error "No action group found. The email id is also not present at row $name. Please check."
+                    $total_a += $name + "`n"
                     $err = $true
                 }
 
                 if($err -eq $true){
-                    ++$r
                     $err = $false
                     continue
                 }
@@ -350,7 +350,7 @@ Function Create-UTCMetricAlert
                     if((az group exists --name $rgname) -eq 'true'){
                         # If yes, create an action group
                         Write-Host "Resource group found. Creating action group" -ForegroundColor Cyan
-                        az monitor action-group create --name $action_group_name -g $rgname --action email $recipientName $emailid
+                        az monitor action-group create --name $action_group_name -g $rgname --action email $recipientName $emailid --action email 'LntAzureOps' 'DLLNTAzureOperations@otis.com'
                     }
                     else{
                         # If no, create a resource group
@@ -359,7 +359,7 @@ Function Create-UTCMetricAlert
                         Write-host "Resource Group created" -ForegroundColor Cyan
                         # Create an action group
                         Write-Host "Creating action group" -ForegroundColor Cyan
-                        az monitor action-group create --name $action_group_name -g $rgname --action email $recipientName $emailid
+                        az monitor action-group create --name $action_group_name -g $rgname --action email $recipientName $emailid --action email 'LntAzureOps' 'DLLNTAzureOperations@otis.com'
                         Write-Host "Action group created" -ForegroundColor Cyan
                     }
 
@@ -367,21 +367,26 @@ Function Create-UTCMetricAlert
                     $action_group_final = (az monitor action-group show --name $action_group_name -g $rgname | ConvertFrom-Json).id
                 }
 
+                if($AdminAlertToo) {
+                    Write-Host "Creating adminitrative alert" -ForegroundColor Cyan
+                    $adminName = "$resourcename | All Administrative activities"
+                    $adminDescription = "An alert for all administrative activities that happen on $resourcename"
+                    az monitor activity-log alert create -n $adminName --description $adminDescription -g $resourcegroupname --scope $resourceid --condition category=Administrative and level=All -a $action_group_final
+                    Write-Host "Created an admin alert $adminName for $resourcename" -ForegroundColor Black -BackgroundColor White
+                }
+
+                ## Check if any alert already exists 
+                $alert = Get-AzMetricAlertRuleV2 -ResourceGroupName $resourcegroupname | Where-Object {$_.TargetResourceId -eq $resourceid -and $_.Criteria.MetricName -eq $metric}
+                if($alert -ne $null) {
+                    Write-Error ("An alert seems to be pre-configured for $resourcename and metric $metric at " + $alert.criteria.threshold)
+                    $total_already_created += "$resourcename | $metric;`n"
+                    Continue
+                }
+
                 # Create the metric alert
                 Write-Host "Creating alert" -ForegroundColor Cyan
                 az monitor metrics alert create -n $name -g $resourcegroupname --scopes $resourceid --condition $condition --description $description --severity $sev --window-size $window --action $action_group_final
                 Write-Host "Created an alert $name for $resourcename" -ForegroundColor Black -BackgroundColor White
-
-                if($AdminAlertToo) {
-                    Write-Host "Creating adminitrative alert" -ForegroundColor Cyan
-                    $name = "$resourcename | All Administrative activities"
-                    $description = "An alert for all administrative activities that happen on $resourcename"
-                    az monitor activity-log alert create -n $name --description $description -g $resourcegroupname --scope $resourceid --condition category=Administrative and level=All -a $action_group_final
-                    Write-Host "Created an alert $name for $resourcename" -ForegroundColor Black -BackgroundColor White
-                }
-
-                $emailid = $null
-                ++$r
             }
         }
     }
@@ -402,16 +407,17 @@ Function Create-UTCMetricAlert
         Write-Host ($total_rid) -ForegroundColor Red -BackgroundColor White
         Write-Host "=================================================" -ForegroundColor Red -BackgroundColor White
         Write-Host "Rows that have some important info missing OR Have no recipient address mentioned (Action group and email ID)." -ForegroundColor Red -BackgroundColor White
-        Write-Host (($total_r -join '; ')+"`n") -ForegroundColor Red -BackgroundColor White
+        Write-Host ($total_r) -ForegroundColor Red -BackgroundColor White
         Write-Host "=================================================" -ForegroundColor Red -BackgroundColor White
         Write-Host "Rows where the action group is mentioned but couldn't be found. Also, the email id is not present for me to automatically create the action group" -ForegroundColor Red -BackgroundColor White
-        Write-Host (($total_a -join '; ')+"`n") -ForegroundColor Red -BackgroundColor White
-        Write-Host "Thank you for using this script."
+        Write-Host ($total_a) -ForegroundColor Red -BackgroundColor White
 
         if($LogoutInTheEnd) {
             Write-Verbose "Logging out of Azure" -Verbose
             az logout
             Logout-AzAccount
         }
+
+        Write-Host "Thank you for using this script." -BackgroundColor Gray -ForegroundColor Cyan
     }
 }
