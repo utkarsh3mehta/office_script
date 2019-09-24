@@ -239,16 +239,16 @@ Function Create-UTCMetricAlert
                     $err = $true
                 }
 
-                if($resourcetype -ne 'Microsoft.Sql/servers/databases') {
-                    if(!($resourceInfo = az resource show -n $resourcename -g $resourcegroupname --resource-type $resourcetype | ConvertFrom-Json)) {
-                        Write-Error "Issue finding resource for the alert $name."
+                if($resourcetype -eq 'Microsoft.Sql/servers/databases') {
+                    $servername = ($resourcename -split '/')[0]
+                    $dbname = ($resourcename -split '/')[1]
+                    if(!($resourceInfo = az sql db show --server $servername -n $dbname -g $resourcegroupname | ConvertFrom-Json)) {
                         $total_rid += $name+";`n"
                         $err = $true
                     }
                 } else {
-                    $servername = ($resourcename -split '/')[0]
-                    $dbname = ($resourcename -split '/')[1]
-                    if(!($resourceInfo = az sql db show --server $servername -n $dbname -g $resourcegroupname | ConvertFrom-Json)) {
+                    if(!($resourceInfo = az resource show -n $resourcename -g $resourcegroupname --resource-type $resourcetype | ConvertFrom-Json)) {
+                        Write-Error "Issue finding resource for the alert $name."
                         $total_rid += $name+";`n"
                         $err = $true
                     }
@@ -305,19 +305,11 @@ Function Create-UTCMetricAlert
                         }
                         if($emailid) {
 		                    foreach($email in $ag.emailReceivers){
-                                $found = $false
                                 # If it does, then check if any action group has a reciever of the email provided
 			                    if($email.emailAddress -eq $emailid){
                                     # Get the ID of the action group
-                                    $found = $true
+                                    $action_group_final = $ag.id
                                     Write-Host "Action group found that uses the provided email ID." -ForegroundColor Cyan
-                                }
-                                if($email.emailAddress -eq 'DLLNTAzureOperations@otis.com'){
-                                    if($found) {
-                                        $action_group_final = $ag.id
-                                        Write-Host "Action group found that uses both the email ID. Breaking loop" -ForegroundColor Cyan
-                                        Break outer
-                                    }
                                 }
                             }
                         }
