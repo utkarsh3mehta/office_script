@@ -1,11 +1,32 @@
 ﻿<#
+
+.Presequisites
+1. Automation variable "LAWebhookUri"
+2. Az modules such as
+a. Az.Accounts
+b. Az.IotHub
+c. Az.Monitor
+d. Az.Resources
+
 .Synopsis
-Down grade Iot Hubs
+Smartly down grade Iot Hubs.
 
 .Description
-Want to smartly lower your cost of your iothubs units? Run this script and save at least $20.
+Want to smartly lower your cost of your iothubs units? Run this script and save at least $20. Get email alerts for all Iot Hubs where a possible issue might have occured.
+This script is supposed to be run as an Azure Runbook inside an Azure automation account.
 
-# Presequisites: Az modules, automation variable LAWebhookUri
+.Inputs
+(Line no: 42) ClientId: The client ID that will be used for creating the authorization header for API call
+(Line no: 43) ClientKey: The client key that will be used for creating the authorization header for API call
+(Automation variable) LAWebhookURI: The URI of the webhook your autoscale logic app.
+
+.Outputs
+An email is triggered for any of the following causes:
+1. When there is no alert configured for an IotHub
+2. When there is not properly configured alert for an IotHub
+3. When downgrading the Iothub faced an error
+4. When the authorization header is not properly created
+
 #>
 
 Write-Verbose "Connecting to the subscription." -Verbose
@@ -58,17 +79,26 @@ if($authHeader -ne $null) {
             $iotResourceGroup = $resource.ResourceGroupName
             $iotResourceId = $resource.ResourceId
 
-            $alertList = Get-AzMetricAlertRuleV2 -ResourceGroupName $iotResourceGroup | Where-Object {$_.TargetResourceId -eq $iotResourceId -and $_.Criteria.MetricName -eq "dailyMessageQuotaUsed"}
+            $alertList = Get-AzMetricAlertRuleV2 -ResourceGroupName $iotResourceGroup | Where-Object {$_.TargetResourceId -eq $iotResourceId -and $_.Criteria.MetricName -eq "dailyMessageQuotaUsed" -and $_.Enabled -eq "True"}
 
             if($alertList -eq $null) {
                 Write-Error "No alert configured on this Iot Hub. Please enable alert first."
-                # Send Mail
+                $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
+                $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
+                $credential = New-Object System.Management.Automation.PSCredential ($Username, $Password)
+                $MSMTPServer = "smtp.sendgrid.net"
+                $To = "DLOTISGlobalIOTSupport@utc.com"
+                $Cc = "Taskal.Samal@otis.com"
+                $Body = "Hi team,`n`nThere is no daily message quota alert configured for Iot Hub $iotName in resource group $iotResourceGroup.`nPlease create an alert, or else the down-grade script will skip this Iot Hub."
+                $Subject = "Downgrade Iot Hub Runbook: No alert configured for Iot Hub $iotName"
+                Send-MailMessage -From "IotDowngrade@otis.com" -To $To -Cc $Cc -Subject $Subject -Body $Body  -SmtpServer $MSMTPServer -Credential $credential -Usessl -Port 587
                 Continue
             } else {
 
                 [int]$y = $resource.Sku.capacity
 
                 if($y -gt 1) {
+
                     $err = $true
                     $tier_name = $resource.Sku.name
 
@@ -97,48 +127,73 @@ if($authHeader -ne $null) {
                     }
 
                     if($err) {
+
                         $final_y = [math]::Ceiling($buffer / $tier_limit)
                         if($final_y -lt 1) {$final_y=1}
                         Write-Verbose ("Final Unit count: "+$final_y) -Verbose
-
                         $final_alert = $null
 
                         foreach($alert in $alertList) {
+
                             $actionGroupId = $alert.Actions.ActionGroupId
                             $actiongroupResourceGroup = ($actionGroupId -split '/')[4]
                             $actiongroupName = ($actionGroupId -split '/')[-1]
                             $actionGroupInfo = Get-AzActionGroup -ResourceGroupName $actiongroupResourceGroup -Name $actiongroupName
 
                             if($actionGroupInfo.WebhookReceivers.ServiceUri -eq $LAWebhookUri) {
+
                                 $final_alert = $alert
                                 Break
                             }
                         }
 
                         if($final_alert -eq $null) {
+
                             Write-Error "No properly configured alert. Please configure one manually."
-                            # Send mail
+                            $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
+                            $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
+                            $credential = New-Object System.Management.Automation.PSCredential ($Username, $Password)
+                            $MSMTPServer = "smtp.sendgrid.net"
+                            $To = "DLOTISGlobalIOTSupport@utc.com"
+                            $Cc = "Taskal.Samal@otis.com"
+                            $Body = "Hi team,`n`nThere is no properly configured alert for Iot Hub $iotName in resource group $iotResourceGroup.`n`nPossible problems:`n1.There is no alert that uses the webhook mentioned in the automation variable 'LAWebhookURI'`n`nPlease configure an alert that uses an action group that runs the mentioned webhook. If you don't, the down-grade script will skip this Iot Hub."
+                            $Subject = "Downgrade Iot Hub Runbook: No properly configured alert for Iot Hub $iotName"
+                            Send-MailMessage -From "IotDowngrade@otis.com" -To $To -Cc $Cc -Subject $Subject -Body $Body  -SmtpServer $MSMTPServer -Credential $credential -Usessl -Port 587
                             Continue
                         }
 
                         try {
+
                             Write-Verbose "Updating the Iot Hub units." -Verbose
                             Set-AzIotHub -ResourceGroupName $iotResourceGroup -Name $iotName -SkuName $tier_name -Units $final_y
+
                         } catch {
+
                             Write-Error "Error while updating the Iot Hub units."
+                            $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
+                            $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
+                            $credential = New-Object System.Management.Automation.PSCredential ($Username, $Password)
+                            $MSMTPServer = "smtp.sendgrid.net"
+                            $To = "DLOTISGlobalIOTSupport@utc.com"
+                            $Cc = "Taskal.Samal@otis.com"
+                            $Body = "Hi Team,`nError while updating the Iot Hub $iotName in the resource group $iotResourceGroup.`n`nPossible causes:`n1. Automation account does not have write permissions on the resource.`n`nTroubleshooting steps:`n1. Check the activity logs in Azure Portal and look for events initiated by omuswhqomsauto"
+                            $Subject = "Downgrade Iot Hub Runbook: Error while downgrading $iotName"
+                            Send-MailMessage -From "IotDowngrade@otis.com" -To $To -Cc $Cc -Subject $Subject -Body $Body  -SmtpServer $MSMTPServer -Credential $credential -Usessl -Port 587
                             Continue
                         }
                         Write-Verbose "Running the update threshold now." -Verbose
                         .\UpdateThreshold.ps1 -resourceId $iotResourceId -alertresourceid $final_alert.Id
-
                     }
+
                 } else {
+
                     Write-Verbose "Everything looks fine for $iotName" -Verbose
                 }
             }
         }
     }
 } else {
+
     Write-Error "Error while creating header. Sending mail."
     $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
     $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
