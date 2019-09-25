@@ -1,4 +1,4 @@
-﻿<#
+<#
 
 .Presequisites
 1. Automation variable "LAWebhookUri"
@@ -18,6 +18,8 @@ This script is supposed to be run as an Azure Runbook inside an Azure automation
 .Inputs
 (Line no: 42) ClientId: The client ID that will be used for creating the authorization header for API call
 (Line no: 43) ClientKey: The client key that will be used for creating the authorization header for API call
+(Line no: 44) SMTPUsername: The username of your SMTP server
+(Line no: 45) SMTPPassword: The password of your SMTP server
 (Automation variable) LAWebhookURI: The URI of the webhook your autoscale logic app.
 
 .Outputs
@@ -26,7 +28,6 @@ An email is triggered for any of the following causes:
 2. When there is not properly configured alert for an IotHub
 3. When downgrading the Iothub faced an error
 4. When the authorization header is not properly created
-
 #>
 
 Write-Verbose "Connecting to the subscription." -Verbose
@@ -40,6 +41,12 @@ $subId = $Conn.SubscriptionId
 $tenantId = $Conn.TenantID
 $clientId = $env:ClientId
 $key =$env:ClientKey
+$smtpusername = $env:SMTPUsername
+$smtppassword = ConvertTo-SecureString $env:SMTPPassword -AsPlainText -Force
+$credential = New-Object System.Management.Automation.PSCredential ($smtpusername, $smtppassword)
+$MSMTPServer = "smtp.sendgrid.net"
+$To = "your@emailid.com"
+$Cc = "someimportantperson@emailid.com"
 $LAWebhookUri = Get-AutomationVariable -Name 'LAWebhookUri'
 
 # Creating the URL for getting an access token
@@ -83,12 +90,6 @@ if($authHeader -ne $null) {
 
             if($alertList -eq $null) {
                 Write-Error "No alert configured on this Iot Hub. Please enable alert first."
-                $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
-                $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
-                $credential = New-Object System.Management.Automation.PSCredential ($Username, $Password)
-                $MSMTPServer = "smtp.sendgrid.net"
-                $To = "DLOTISGlobalIOTSupport@utc.com"
-                $Cc = "Taskal.Samal@otis.com"
                 $Body = "Hi team,`n`nThere is no daily message quota alert configured for Iot Hub $iotName in resource group $iotResourceGroup.`nPlease create an alert, or else the down-grade script will skip this Iot Hub."
                 $Subject = "Downgrade Iot Hub Runbook: No alert configured for Iot Hub $iotName"
                 Send-MailMessage -From "IotDowngrade@otis.com" -To $To -Cc $Cc -Subject $Subject -Body $Body  -SmtpServer $MSMTPServer -Credential $credential -Usessl -Port 587
@@ -150,12 +151,6 @@ if($authHeader -ne $null) {
                         if($final_alert -eq $null) {
 
                             Write-Error "No properly configured alert. Please configure one manually."
-                            $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
-                            $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
-                            $credential = New-Object System.Management.Automation.PSCredential ($Username, $Password)
-                            $MSMTPServer = "smtp.sendgrid.net"
-                            $To = "DLOTISGlobalIOTSupport@utc.com"
-                            $Cc = "Taskal.Samal@otis.com"
                             $Body = "Hi team,`n`nThere is no properly configured alert for Iot Hub $iotName in resource group $iotResourceGroup.`n`nPossible problems:`n1.There is no alert that uses the webhook mentioned in the automation variable 'LAWebhookURI'`n`nPlease configure an alert that uses an action group that runs the mentioned webhook. If you don't, the down-grade script will skip this Iot Hub."
                             $Subject = "Downgrade Iot Hub Runbook: No properly configured alert for Iot Hub $iotName"
                             Send-MailMessage -From "IotDowngrade@otis.com" -To $To -Cc $Cc -Subject $Subject -Body $Body  -SmtpServer $MSMTPServer -Credential $credential -Usessl -Port 587
@@ -170,12 +165,6 @@ if($authHeader -ne $null) {
                         } catch {
 
                             Write-Error "Error while updating the Iot Hub units."
-                            $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
-                            $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
-                            $credential = New-Object System.Management.Automation.PSCredential ($Username, $Password)
-                            $MSMTPServer = "smtp.sendgrid.net"
-                            $To = "DLOTISGlobalIOTSupport@utc.com"
-                            $Cc = "Taskal.Samal@otis.com"
                             $Body = "Hi Team,`nError while updating the Iot Hub $iotName in the resource group $iotResourceGroup.`n`nPossible causes:`n1. Automation account does not have write permissions on the resource.`n`nTroubleshooting steps:`n1. Check the activity logs in Azure Portal and look for events initiated by omuswhqomsauto"
                             $Subject = "Downgrade Iot Hub Runbook: Error while downgrading $iotName"
                             Send-MailMessage -From "IotDowngrade@otis.com" -To $To -Cc $Cc -Subject $Subject -Body $Body  -SmtpServer $MSMTPServer -Credential $credential -Usessl -Port 587
@@ -195,12 +184,6 @@ if($authHeader -ne $null) {
 } else {
 
     Write-Error "Error while creating header. Sending mail."
-    $Username ="azure_64412a82eb59ccae2e465f540642070a@azure.com"
-    $Password = ConvertTo-SecureString "8J6pFV65g0e33nu" -AsPlainText -Force
-    $credential = New-Object System.Management.Automation.PSCredential ($Username, $Password)
-    $MSMTPServer = "smtp.sendgrid.net"
-    $To = "DLOTISGlobalIOTSupport@utc.com"
-    $Cc = "Taskal.Samal@otis.com"
     $Body = "Error with creating header for sending an API request. Please check the IotHub downgrade runbook.`nPossible error: Client ID and key do not match."
     $Subject = "Downgrade Iot Hub Runbook: API Header not created"
     Send-MailMessage -From "IotDowngrade@otis.com" -To $To -Cc $Cc -Subject $Subject -Body $Body  -SmtpServer $MSMTPServer -Credential $credential -Usessl -Port 587
