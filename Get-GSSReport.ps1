@@ -1,7 +1,7 @@
-﻿$tenantId = "03afca2b-f47f-4d0b-9a25-d464aff5d351"
+$tenantId = "tenant id comes here"
 
-$clientId = "39d4aeb5-68b7-47ea-8750-64d77ffc2750"
-$key = "ab688f54-5ebf-4e8c-92c1-53f43e32e0bd"
+$clientId = "client id comes here"
+$key = "client key comes here"
 
 # Creating the URL for getting an access token
 $authUrl = "https://login.windows.net/${tenantId}"
