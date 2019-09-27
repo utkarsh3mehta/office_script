@@ -18,7 +18,7 @@ $authHeader = @{
 }
 
 
-$data = Invoke-RestMethod -Method Get -Headers $authHeader -Uri "https://management.azure.com/subscriptions/7785bb96-4a80-4ad9-a587-e478bfa62cf8/resourceGroups/AlexaTesting/providers/Microsoft.Web/sites/AlexaForG3MS/providers/microsoft.Insights/metrics?timespan=2019-07-26T12:00:00.000Z/2019-09-26T12:00:00.000Z&interval=PT12H&metricnames=CpuTime&aggregation=maximum&metricNamespace=microsoft.web/sites&validatedimensions=false&api-version=2018-01-01"
+Invoke-RestMethod -Method Get -Headers $authHeader -Uri "https://management.azure.com/subscriptions/<subscriptionIdComesHere>/resourceGroups/<resourceGroupName>/providers/Microsoft.Web/sites/AlexaForG3MS/providers/microsoft.Insights/metrics?timespan=2019-07-26T12:00:00.000Z/2019-09-26T12:00:00.000Z&interval=PT12H&metricnames=CpuTime&aggregation=maximum&metricNamespace=microsoft.web/sites&validatedimensions=false&api-version=2018-01-01"
 
 $data.value.timeseries.data
 
