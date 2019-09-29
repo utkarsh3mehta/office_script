@@ -1,9 +1,40 @@
+<#
+.Synopsis
+Get metric data from Azure using a non-published API.
+
+.Description
+Exporting metric data from the Azure portal can be a hassle. And a repetitive task. This script allows you to get the metric data of the below mentioned resource types,
+and export it into CSV files group by resource types.
+#
+Supported resource types: 
+1. Storage Accounts
+2. App Services
+3. Cognitive Services
+4. Data Factories
+5. SQL servers
+
+.Inputs
+A list of subscription IDs for the variable "$subscription". To use "Get-AzureRmSubscription", you'll need to change "$sub" to "$sub.Id" everywhere inside it's foreach loop.
+A list of resource groups for the variable "$resourcegroup". To use "Get-AzureRmResourceGroups", you'll need to change "$rg" to "$rg.Name" everywhere inside it's foreach loop.
+Change the number of months you want the data for in the variable "$starttime"
+
+.Outputs
+The below file structure will be generated.
+sub1
+ |- Microsoftwebsites.csv
+ |- Microsoftstoragestorageaccounts.csv
+sub2
+ |- MicrosoftCognitiveServicesaccounts.csv
+ |- MicrosoftDataFactoryfactories.csv
+#>
+
 $global:authHeader = @{}
 $subscription = "subscriptionID1ComesHere","SubscriptionID2ComesHere"
 $resourcegroup = "nameOfResourceGroup1","nameOfResourceGroup2"
 $starttime = (Get-Date).AddMonths(-2).ToString("yyyy-MM-ddT12:00:00.000Z")
 $endtime = (Get-Date).ToString("yyyy-MM-ddT12:00:00.000Z")
 
+# This function is responsible for creating an authorization header for making the API call for a subscription
 Function AuthHeader($subid) {
     if($subid -eq 'subscriptionIDComesHere') {
         $tenantId = "TenantIDComesHere"
@@ -30,6 +61,7 @@ Function AuthHeader($subid) {
     })
 }
 
+# This function is responsible for making the API call and saving the data inside a CSV file
 Function RestRequest ($apiParam, $csvParam, $nameParam) {
     [URI]$apiParam = $apiParam
     $nameParam | Out-File -FilePath $csvParam -Encoding utf8 -Append
@@ -37,11 +69,15 @@ Function RestRequest ($apiParam, $csvParam, $nameParam) {
     $data.namespace | Out-File -FilePath $csvParam -Encoding utf8 -Append
     $data.timespan | Out-File -FilePath $csvParam -Encoding utf8 -Append
     $data.value.name.localizedValue | Out-File -FilePath $csvParam -Encoding utf8 -Append
+
+    # We need to access the CSV file as a txt file because we are trying to save meta-data about the table and not just the table.
+    # Dynamically create the table headers
     [array]$header = $data.value.timeseries.data | gm | Where-Object {$_.MemberType -eq 'NoteProperty'} | Select-Object -ExpandProperty Name
     $headerString = '"'
     $headerString = $headerString + ($header -join '","')
     $headerString = $headerString + '"'
     $headerString | Out-File -FilePath $csvParam -Encoding utf8 -Append
+    # Fill the table one row at a time
     foreach ($row in $data.value.timeseries.data) {
         $dataString = '"'
         for ($i = 0; $i -lt $header.Length; $i++) {
@@ -54,12 +90,14 @@ Function RestRequest ($apiParam, $csvParam, $nameParam) {
         }
         $dataString | Out-File -FilePath $csvParam -Encoding utf8 -Append
     }
+    # Add a new line to csv file
     "`r`n" | Out-File -FilePath $csvParam -Encoding utf8 -Append
 }
 
 foreach($sub in $subscription) {
 
     Set-AzureRmContext -Subscription $sub
+    # Create a auth header for the subscription
     AuthHeader -subid $sub
 
     $output =  "C:\$sub\"
@@ -71,6 +109,7 @@ foreach($sub in $subscription) {
         if ($resource -ne $null) {
             Write-Host "Working in resource group $rg"
             foreach($res in $resource) {
+                # The $api variable is dynamically created along the way.
                 [String]$api = "https://management.azure.com/subscriptions/$sub/resourceGroups/$rg/providers/"
                 if($res.ResourceType -eq 'Microsoft.Storage/storageAccounts') 
                 {
