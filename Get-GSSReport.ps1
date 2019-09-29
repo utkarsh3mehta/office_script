@@ -1,9 +1,8 @@
 $global:authHeader = @{}
 $subscription = "subscriptionID1ComesHere","SubscriptionID2ComesHere"
-$resourcegroup = "emea-otis-gss-prd-rg","naa-otis-gss-prd-rg"
+$resourcegroup = "nameOfResourceGroup1","nameOfResourceGroup2"
 $starttime = (Get-Date).AddMonths(-2).ToString("yyyy-MM-ddT12:00:00.000Z")
 $endtime = (Get-Date).ToString("yyyy-MM-ddT12:00:00.000Z")
-
 
 Function AuthHeader($subid) {
     if($subid -eq 'subscriptionIDComesHere') {
@@ -32,10 +31,6 @@ Function AuthHeader($subid) {
 }
 
 Function RestRequest ($apiParam, $csvParam, $nameParam) {
-    #Write-Host "API"
-    #$apiParam
-    #Write-Host "CSV"
-    #$csvParam
     [URI]$apiParam = $apiParam
     $nameParam | Out-File -FilePath $csvParam -Encoding utf8 -Append
     $data = Invoke-RestMethod -Headers $authHeader -Uri $apiParam
@@ -44,7 +39,7 @@ Function RestRequest ($apiParam, $csvParam, $nameParam) {
     $data.value.name.localizedValue | Out-File -FilePath $csvParam -Encoding utf8 -Append
     [array]$header = $data.value.timeseries.data | gm | Where-Object {$_.MemberType -eq 'NoteProperty'} | Select-Object -ExpandProperty Name
     $headerString = '"'
-    $headerString = $headerString + (($data.value.timeseries.data | gm | Where-Object {$_.MemberType -eq 'NoteProperty'} | Select-Object -ExpandProperty Name) -join '","')
+    $headerString = $headerString + ($header -join '","')
     $headerString = $headerString + '"'
     $headerString | Out-File -FilePath $csvParam -Encoding utf8 -Append
     foreach ($row in $data.value.timeseries.data) {
@@ -67,7 +62,7 @@ foreach($sub in $subscription) {
     Set-AzureRmContext -Subscription $sub
     AuthHeader -subid $sub
 
-    $output =  "C:\Users\MehtaUt-A\Desktop\PowerShell tutorial II\$sub\"
+    $output =  "C:\$sub\"
     if(!(Test-Path $output)) {
         mkdir -Path $output
     }
@@ -115,15 +110,13 @@ foreach($sub in $subscription) {
                     RestRequest -apiParam $api -csvParam $csv -nameParam $res.Name
                     $api = $ipa + "metricnames=PipelineFailedRuns&aggregation=total&metricNamespace=microsoft.datafactory/factories&autoadjusttimegrain=true&validatedimensions=false&api-version=2018-01-01"
                     Write-Host "API for data factory pipeline failed run" -ForegroundColor Yellow
-                    $csv = "FailedPipeline-" + $csv
-                    $csv = $output + "fialedPipeline-" + ($res.ResourceType -replace '[.\/-]','') + ".csv"
+                    $csv = $output + "failedPipeline-" + ($res.ResourceType -replace '[.\/-]','') + ".csv"
                     RestRequest -apiParam $api -csvParam $csv -nameParam $res.Name
                 } 
                 elseif ($res.ResourceType -eq 'Microsoft.Sql/servers') 
                 {
                     $database = Get-AzureRmSqlDatabase -ServerName $res.Name -ResourceGroupName $res.ResourceGroupName
                     foreach($db in $database) {
-                        [String]$api = "https://management.azure.com/subscriptions/$sub/resourceGroups/$rg/providers/"
                         $api = $api + $res.ResourceType + "/" + $res.Name + "/databases/" + $db.DatabaseName + "/providers/microsoft.Insights/metrics?timespan=$starttime/$endtime&interval=PT12H&"
                         $ipa = $api
                         $api = $api + "metricnames=cpu_percent&aggregation=maximum&metricNamespace=microsoft.sql/servers/databases&validatedimensions=false&api-version=2018-01-01"
@@ -142,5 +135,5 @@ foreach($sub in $subscription) {
                 }
             }
         }
-    }    
+    }
 }
